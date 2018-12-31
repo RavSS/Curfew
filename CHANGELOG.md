@@ -1,5 +1,29 @@
 ## Changelog for Curfew
 
+## 2.00 - 31st December 2018
+### Added
+- Completely reworked from the ground up
+- Usage of Netlink for more reliable and standard scanning purposes
+- Built-in frequency/channel shifter
+- Frame burst rate per targeted access point
+- Both IOCTL and Netlink methods for setting up wireless interfaces
+
+### Changed / Fixed
+- Frames no longer transmit on incorrect channels
+- Scheduling is now just handled by the kernel itself
+- Usage of raw sockets directly for maximum speed
+- All GCC optimisations are now possible without issues
+- Standard is now set to C99 for the Netlink libraries, but C89/ANSI is used for Curfew
+- Source code is more easier read on a standard terminal (80 column limit)
+
+### Removed
+- Curfew is no longer multithreaded via pthreads, as it had little benefit
+- User specified process scheduling options are no longer possible
+- pcap has been entirely removed from Curfew
+- Colour output is currently not developed
+- Collection clearing and roaming options are unavailable
+- Full RSN capabilities binary dump view
+
 ## 1.01 - 11th March 2018
 ### Added
 - Option for deauthenticating specific access point only
