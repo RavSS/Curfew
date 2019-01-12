@@ -36,7 +36,6 @@
 #include <linux/if_packet.h>
 #include <net/ethernet.h>
 
-#define VERSION "2.00"
 #define STAMAX 512
 #define MONITOR "curfew0"
 
@@ -166,6 +165,12 @@ static int errorCallback(__attribute__((unused)) struct sockaddr_nl *nla,
 
 	ret = arg;
 	*ret = err->error;
+
+	/* I have found that disabling sequencing does not always work,
+	/  so this solves those odd cases. */
+	if (*ret == -16) /* Ignore sequence number mismatches. */
+		return NL_OK;
+
 	printf("ERROR: Handler returned '%s' (%d).\n",
 		nl_geterror(*ret), *ret);
 
@@ -291,7 +296,10 @@ int parse80211w(unsigned char *data, unsigned int size)
 {
 	unsigned int i;
 	short rsnPresent;
-	struct RSN rsn;
+	/* Stop GCC from complaining about this non-issue specifically. */
+	#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+		struct RSN rsn;
+	#pragma GCC diagnostic pop
 
 	rsnPresent = 0;
 
@@ -574,8 +582,7 @@ int triggerScan(struct PARAMETERS *args)
 		NL80211_MULTICAST_GROUP_SCAN);
 	nl_socket_add_membership(netlinkSocket, scanMulticastID);
 
-	genlmsg_put(scan, 0, 0, driverID, 0, NL80211_SCAN_FLAG_HIGH_ACCURACY
-		| NL80211_SCAN_FLAG_RANDOM_ADDR,
+	genlmsg_put(scan, 0, 0, driverID, 0, NL80211_SCAN_FLAG_RANDOM_ADDR,
 		NL80211_CMD_TRIGGER_SCAN, 0);
 	nla_put_u32(scan, NL80211_ATTR_IFINDEX, deviceID);
 
@@ -603,8 +610,8 @@ int triggerScan(struct PARAMETERS *args)
 	while (!scanTriggers.triggered)
 	{
 		nl_recvmsgs_default(netlinkSocket);
-
-		if (error)
+		
+		if (error && error != -16)
 		{
 			ret = -2;
 			break;

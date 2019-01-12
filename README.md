@@ -33,8 +33,7 @@ It's also beneficial to have a wireless device that has a high bandwidth rate, a
 ## Installation
 
 ```
-sudo make
-sudo make install
+sudo sh INSTALL.sh
 ```
 If the (Generic) Netlink dependency is satisfied, then everything should compile properly.
 

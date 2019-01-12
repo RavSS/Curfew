@@ -1,8 +1,9 @@
 /*
+!.gitignore
 
 !curfew.c
 !Makefile
 
-!.gitignore
 !README.md
-
+!CHANGELOG.md
+!INSTALL.sh

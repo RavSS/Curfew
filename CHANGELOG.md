@@ -1,5 +1,17 @@
 ## Changelog for Curfew
 
+## 2.01 - 13th January 2019
+### Added
+- Installation shell script that installs the program and checks dependencies
+
+### Changed / Fixed
+- Fixed sequence number mismatches even with sequence numbering disabled
+- Makefile tweaks
+- GCC pragmas for ignoring false warning in the meantime
+
+### Removed
+- Scan flag for "high accuracy", seemed to do nothing, and is undefined on recent versions
+
 ## 2.00 - 31st December 2018
 ### Added
 - Completely reworked from the ground up
